@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { predictYield } from "../api/predictionApi";
+
 
 function PredictionForm() {
   const [formData, setFormData] = useState({
@@ -16,16 +18,22 @@ function PredictionForm() {
     });
   };
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
+ const handleSubmit = async (e) => {
+  e.preventDefault();
 
-    setPrediction({
+  try {
+    const result = await predictYield({
       crop: formData.crop,
       location: formData.location,
-      landArea: formData.landArea,
-      yield: "5.8 Tons (Demo)",
+      land_area: formData.landArea,
     });
-  };
+
+    setPrediction(result);
+  } catch (error) {
+    console.error(error);
+    alert("Failed to connect to Django backend.");
+  }
+};
 
   return (
     <section className="min-h-screen bg-green-50 py-20">
@@ -51,11 +59,12 @@ function PredictionForm() {
               required
             >
               <option value="">Select Crop</option>
-              <option value="Rice">Rice</option>
+              <option value="Paddy">Paddy</option>
               <option value="Maize">Maize</option>
               <option value="Wheat">Wheat</option>
-              <option value="Potato">Potato</option>
-              <option value="Tomato">Tomato</option>
+              <option value="Millet">Millet</option>
+              <option value="Buckwheat">Buckwheat</option>
+              <option value="Barlay">Barlay</option>
             </select>
           </div>
 
@@ -117,7 +126,7 @@ function PredictionForm() {
             </p>
 
             <p>
-              <strong>Land Area:</strong> {prediction.landArea} Hectares
+              <strong>Land Area:</strong> {prediction.land_area} Hectares
             </p>
 
             <div className="mt-6 bg-green-100 rounded-lg p-6 text-center">
@@ -126,7 +135,7 @@ function PredictionForm() {
               </h3>
 
               <p className="text-3xl font-bold text-green-700 mt-2">
-                {prediction.yield}
+                {prediction.predicted_yield}
               </p>
             </div>
           </div>
