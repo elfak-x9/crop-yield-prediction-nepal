@@ -14,7 +14,7 @@ from src.scaling import fit_and_scale_train, scale_with_fitted
 # Configuration
 # ==================================================
 SEED = 42
-TARGET_CROP = "PD_Y"       # Change to PD_Y, MZ_Y, etc.
+TARGET_CROP = "WH_Y"       # Change to PD_Y, MZ_Y, etc.
 SEQUENCE_LENGTH = 150
 EPOCHS = 100
 BATCH_SIZE = 16
@@ -68,7 +68,7 @@ def main():
         X_climate,
         X_soil,
         y,
-        test_size=0.2,
+        test_size=0.2,             
         random_state=SEED,
     )
 
@@ -123,24 +123,28 @@ def main():
     )
 
 
-    print("\n================ FINAL TRAINING METRICS ================")
-
-    print(f"Final Training Loss   : {history.history['loss'][-1]:.6f}")
-    print(f"Final Validation Loss : {history.history['val_loss'][-1]:.6f}")
+    print("\n================ BEST TRAINING METRICS ================")
 
     mae_key = "mae" if "mae" in history.history else "mean_absolute_error"
     val_mae_key = (
-        "val_mae"
-        if "val_mae" in history.history
-        else "val_mean_absolute_error"
+    "val_mae"
+    if "val_mae" in history.history
+    else "val_mean_absolute_error"
     )
 
-    print(f"Final Training MAE    : {history.history[mae_key][-1]:.6f}")
-    print(f"Final Validation MAE  : {history.history[val_mae_key][-1]:.6f}")
-    print("(Note: Loss/MAE above are in SCALED units, since y_train/y_val")
-    print(" are scaled. Real mt/ha error is reported by evaluate.py.)")
+    # Find the epoch with the lowest validation loss
+    best_epoch = np.argmin(history.history["val_loss"])
 
-    print("========================================================")
+    print(f"Best Epoch            : {best_epoch + 1}")
+    print(f"Best Training Loss    : {history.history['loss'][best_epoch]:.6f}")
+    print(f"Best Validation Loss  : {history.history['val_loss'][best_epoch]:.6f}")
+    print(f"Best Training MAE     : {history.history[mae_key][best_epoch]:.6f}")
+    print(f"Best Validation MAE   : {history.history[val_mae_key][best_epoch]:.6f}")
+
+print("(Loss/MAE above are in SCALED units.)")
+print("Real mt/ha performance is reported by evaluate.py.")
+
+print("========================================================")
 
 
 if __name__ == "__main__":
