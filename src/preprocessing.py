@@ -17,6 +17,12 @@ def process_features_and_build_sequences(
         .str.strip()
         .astype(int)
     )
+# Sort yield data chronologically within each district
+    yield_df = yield_df.sort_values(
+    ["District", "Year"]
+    ).reset_index(drop=True)
+
+
 
     # Standardize District names (Lowercase + Strip Whitespace)
     soil_df["District"] = soil_df["District"].astype(str).str.strip().str.lower()

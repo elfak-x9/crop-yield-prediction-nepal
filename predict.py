@@ -75,6 +75,6 @@ def predict_samples(target_crop, indices, save_dir="saved_models"):
 if __name__ == "__main__":
 
     predict_samples(
-        target_crop="PD_Y",
+        target_crop="WH_Y",
         indices=[5, 12, 25, 42, 50]
     )
