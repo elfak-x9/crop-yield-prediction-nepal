@@ -1,8 +1,9 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from . import config, inference
-from .schemas import CropInfo, PredictRequest, PredictResponse
+from .schemas import CropInfo, CropStats, PredictRequest, PredictResponse
 
 app = FastAPI(
     title="Nepal Crop Yield Prediction API",
@@ -17,6 +18,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Serve saved model plots (training_history.png, actual_vs_predicted.png)
+app.mount("/static/models", StaticFiles(directory=config.SAVE_DIR), name="saved-model-plots")
 
 
 @app.get("/health")
@@ -45,6 +49,18 @@ def get_years(district: str):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@app.get("/stats", response_model=list[CropStats])
+def get_stats():
+    """Per-crop model statistics (R², RMSE, MAE) computed on the validation split."""
+    results = []
+    for crop in config.CROPS:
+        try:
+            results.append(inference.compute_crop_stats(crop))
+        except inference.PredictionError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return results
+
+
 @app.post("/predict", response_model=PredictResponse)
 def predict(req: PredictRequest):
     # Print formatted request data to the terminal
@@ -53,7 +69,7 @@ def predict(req: PredictRequest):
     print("==========================================")
     print(f"Crop Code : {req.crop}")
     print(f"District  : {req.district}")
-    print(f"Year      : {req.year}")
+    print(f"Year      : {req.year if req.year is not None else '(default: latest)'}")
     print(f"Land Area : {req.land_area} ha" if req.land_area else "Land Area : Not specified")
     print("------------------------------------------")
 
@@ -65,8 +81,11 @@ def predict(req: PredictRequest):
             detail=f"Unsupported crop '{req.crop}'. Supported: {list(config.CROPS.keys())}",
         )
 
+    district = req.district.strip().lower()
+
     try:
-        yield_mt_ha = inference.predict_yield(req.crop, req.district, req.year)
+        year = req.year if req.year is not None else inference.latest_year(district)
+        pred_info = inference.predict_with_confidence(req.crop, district, year)
     except inference.PredictionError as exc:
         print(f"[ERROR] Prediction error: {exc}")
         print("==========================================\n")
@@ -76,11 +95,14 @@ def predict(req: PredictRequest):
         print("==========================================\n")
         raise HTTPException(status_code=500, detail=f"Prediction failed: {exc}") from exc
 
+    yield_mt_ha = pred_info["yield_mt_per_ha"]
     total = yield_mt_ha * req.land_area if req.land_area else None
 
     # Print calculated results to the terminal
     print(f"Crop Name          : {config.CROPS[req.crop]}")
+    print(f"Year (used)        : {year}")
     print(f"Yield (MT/ha)      : {round(yield_mt_ha, 4)}")
+    print(f"Confidence         : {pred_info['confidence_pct']}% (+/- {pred_info['error_margin_mt_per_ha']})")
     if total is not None:
         print(f"Total Yield (MT)   : {round(total, 4)}")
     print("==========================================\n")
@@ -88,9 +110,11 @@ def predict(req: PredictRequest):
     return PredictResponse(
         crop=req.crop,
         crop_name=config.CROPS[req.crop],
-        district=req.district.strip().lower(),
-        year=req.year,
+        district=district,
+        year=year,
         predicted_yield_mt_per_ha=round(yield_mt_ha, 4),
+        confidence_pct=pred_info["confidence_pct"],
+        error_margin_mt_per_ha=pred_info["error_margin_mt_per_ha"],
         land_area_ha=req.land_area,
         predicted_total_yield_mt=round(total, 4) if total is not None else None,
     )

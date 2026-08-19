@@ -8,6 +8,7 @@ loaded once and cached in memory; models and scalers are loaded lazily
 per crop and cached after first use.
 """
 
+import io
 import threading
 from functools import lru_cache
 
@@ -15,12 +16,15 @@ import joblib
 import numpy as np
 import pandas as pd
 import tensorflow as tf
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.model_selection import train_test_split
 
 from . import config
 
 _lock = threading.Lock()
 _model_cache = {}
 _scaler_cache = {}
+_stats_cache = {}
 
 # Target sequence length expected by the CNN-LSTM model (12 months per year)
 MODEL_SEQUENCE_LENGTH = 12
@@ -95,6 +99,14 @@ def list_years_for_district(district: str):
     climate_df = _load_climate_df()
     sub = climate_df[np.isclose(climate_df["LAT"], c_lat) & np.isclose(climate_df["LON"], c_lon)]
     return sorted(sub["Year"].unique().tolist())
+
+
+def latest_year(district: str) -> int:
+    """Most recent year with climate data for a district (used as default)."""
+    years = list_years_for_district(district)
+    if not years:
+        raise PredictionError(f"No climate data available for district '{district}'")
+    return int(years[-1])
 
 
 # ---------------------------------------------------------------------------
@@ -200,3 +212,105 @@ def predict_yield(crop: str, district: str, year: int) -> float:
 
     pred = scaler_y.inverse_transform(pred_scaled.reshape(-1, 1)).flatten()[0]
     return float(pred)
+
+
+def predict_with_confidence(crop: str, district: str, year: int) -> dict:
+    """
+    Runs a prediction and attaches model confidence info derived from the
+    crop's held-out validation metrics (same split used by evaluate.py).
+    """
+    yield_mt_ha = predict_yield(crop, district, year)
+    stats = compute_crop_stats(crop)
+
+    mae = stats["mae_mt_per_ha"]
+    mean_y = stats["mean_actual_mt_per_ha"]
+
+    # Confidence: how close the typical error is to the typical yield,
+    # expressed as a percentage. Clamped to a sane range.
+    if mean_y > 0:
+        confidence_pct = round(max(0.0, min(0.999, 1.0 - mae / mean_y)) * 100, 1)
+    else:
+        confidence_pct = 0.0
+
+    return {
+        "yield_mt_per_ha": yield_mt_ha,
+        "confidence_pct": confidence_pct,
+        "error_margin_mt_per_ha": round(mae, 4),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Model statistics (computed once per crop on the held-out validation split)
+# ---------------------------------------------------------------------------
+def compute_crop_stats(crop: str) -> dict:
+    """
+    Evaluate a crop's model on the same 20% validation split that evaluate.py
+    uses and return R², RMSE, MAE, sample counts and a text summary of the
+    model architecture. Results are cached after the first call.
+    """
+    if crop not in config.CROPS:
+        raise PredictionError(f"Unsupported crop code: '{crop}'")
+
+    with _lock:
+        if crop in _stats_cache:
+            return _stats_cache[crop]
+
+    from src.data_loader import load_and_preprocess_data
+    from src.scaling import inverse_scale_y, scale_with_fitted
+
+    X_climate, X_soil, y = load_and_preprocess_data(
+        target_crop=crop,
+        soil_path=config.SOIL_CSV,
+        climate_path=config.CLIMATE_CSV,
+        yield_path=config.YIELD_CSV,
+    )
+
+    if len(y) == 0:
+        raise PredictionError(f"No data found for crop '{crop}'")
+
+    _, X_clim_val, _, X_soil_val, _, y_val = train_test_split(
+        X_climate,
+        X_soil,
+        y,
+        test_size=0.2,
+        random_state=42,  # must match main.py / evaluate.py
+    )
+
+    X_clim_val, X_soil_val, _ = scale_with_fitted(
+        X_clim_val,
+        X_soil_val,
+        y_val,
+        save_dir=config.SAVE_DIR,
+        target_crop=crop,
+    )
+
+    model = _get_model(crop)
+
+    y_pred_scaled = model.predict(
+        {"Climate_Input": X_clim_val, "Soil_Input": X_soil_val}, verbose=0
+    ).flatten()
+    y_pred = inverse_scale_y(y_pred_scaled, save_dir=config.SAVE_DIR, target_crop=crop)
+
+    r2 = float(r2_score(y_val, y_pred))
+    rmse = float(np.sqrt(mean_squared_error(y_val, y_pred)))
+    mae = float(mean_absolute_error(y_val, y_pred))
+
+    buf = io.StringIO()
+    model.summary(print_fn=lambda line: buf.write(line + "\n"))
+
+    stats = {
+        "crop": crop,
+        "crop_name": config.CROPS[crop],
+        "r2": round(r2, 4),
+        "rmse_mt_per_ha": round(rmse, 4),
+        "mae_mt_per_ha": round(mae, 4),
+        "mean_actual_mt_per_ha": round(float(np.mean(y_val)), 4),
+        "n_samples": int(len(y)),
+        "n_validation": int(len(y_val)),
+        "model_parameters": int(model.count_params()),
+        "architecture": buf.getvalue(),
+    }
+
+    with _lock:
+        _stats_cache[crop] = stats
+    return stats

@@ -30,10 +30,10 @@ function Navbar() {
           </Link>
 
           <Link
-            to="/dashboard"
+            to="/statistics"
             className="hover:text-green-600 transition duration-300"
           >
-            Dashboard
+            Statistics
           </Link>
 
           <Link

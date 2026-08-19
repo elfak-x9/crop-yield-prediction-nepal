@@ -1,6 +1,24 @@
 import { FaSeedling, FaChartLine, FaCloudSun } from "react-icons/fa";
 
 function Features() {
+  const features = [
+    {
+      icon: <FaSeedling className="text-5xl text-green-600 mb-4" />,
+      title: "Paddy, Maize & Wheat",
+      desc: "Dedicated CNN-LSTM models trained per crop on historical yield records.",
+    },
+    {
+      icon: <FaCloudSun className="text-5xl text-green-600 mb-4" />,
+      title: "Climate + Soil Fusion",
+      desc: "Blends monthly climate sequences with district soil properties for prediction.",
+    },
+    {
+      icon: <FaChartLine className="text-5xl text-green-600 mb-4" />,
+      title: "Confidence & Statistics",
+      desc: "Every prediction ships with a confidence score and model performance metrics.",
+    },
+  ];
+
   return (
     <section className="py-20 bg-green-50">
       <div className="max-w-6xl mx-auto px-6">
@@ -9,29 +27,13 @@ function Features() {
         </h2>
 
         <div className="grid md:grid-cols-3 gap-8 mt-12">
-          <div className="bg-white p-8 rounded-xl shadow">
-            <FaSeedling className="text-5xl text-green-600 mb-4" />
-            <h3 className="text-xl font-bold">Crop Prediction</h3>
-            <p className="mt-2 text-gray-600">
-              Predict crop yield using AI.
-            </p>
-          </div>
-
-          <div className="bg-white p-8 rounded-xl shadow">
-            <FaChartLine className="text-5xl text-green-600 mb-4" />
-            <h3 className="text-xl font-bold">Analytics</h3>
-            <p className="mt-2 text-gray-600">
-              View prediction reports.
-            </p>
-          </div>
-
-          <div className="bg-white p-8 rounded-xl shadow">
-            <FaCloudSun className="text-5xl text-green-600 mb-4" />
-            <h3 className="text-xl font-bold">Weather Data</h3>
-            <p className="mt-2 text-gray-600">
-              Uses climate information.
-            </p>
-          </div>
+          {features.map((f) => (
+            <div key={f.title} className="bg-white p-8 rounded-xl shadow">
+              {f.icon}
+              <h3 className="text-xl font-bold">{f.title}</h3>
+              <p className="mt-2 text-gray-600">{f.desc}</p>
+            </div>
+          ))}
         </div>
       </div>
     </section>
