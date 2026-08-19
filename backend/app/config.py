@@ -43,6 +43,14 @@ YIELD_CSV = os.environ.get(
 # 12 monthly timesteps per year — matches the trained model input shape (12, 6)
 SEQUENCE_LENGTH = 12
 
+# --- Forecasting horizon ---------------------------------------------------
+# Years beyond the last year in the climate CSV have no observed weather data;
+# for those years the backend builds a climate sequence from the monthly
+# average of the most recent `FORECAST_WINDOW_YEARS` years at the district's
+# grid point.
+FORECAST_HORIZON_YEAR = 2030
+FORECAST_WINDOW_YEARS = 5
+
 # Exact column order used when building X_soil in src/preprocessing.py
 SOIL_COLS = [
     "ph",

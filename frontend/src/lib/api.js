@@ -52,3 +52,7 @@ export const PLOT_URLS = {
   trainingHistory: `${API_BASE_URL}/static/models/training_history.png`,
   actualVsPredicted: `${API_BASE_URL}/static/models/actual_vs_predicted.png`,
 };
+
+export function plotUrl(path) {
+  return `${API_BASE_URL}${path}`;
+}

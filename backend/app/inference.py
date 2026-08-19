@@ -9,6 +9,7 @@ per crop and cached after first use.
 """
 
 import io
+import os
 import threading
 from functools import lru_cache
 
@@ -98,11 +99,20 @@ def list_years_for_district(district: str):
     c_lat, c_lon = coord_map[district]
     climate_df = _load_climate_df()
     sub = climate_df[np.isclose(climate_df["LAT"], c_lat) & np.isclose(climate_df["LON"], c_lon)]
-    return sorted(sub["Year"].unique().tolist())
+    years = sorted(sub["Year"].unique().tolist())
+    if not years:
+        raise PredictionError(f"No climate data available for district '{district}'")
+    # Extend the selection up to the forecasting horizon (2025-2030 are
+    # projected using recent historical averages).
+    return list(range(years[0], config.FORECAST_HORIZON_YEAR + 1))
+
+
+def _last_historical_year() -> int:
+    return int(_load_climate_df()["Year"].max())
 
 
 def latest_year(district: str) -> int:
-    """Most recent year with climate data for a district (used as default)."""
+    """Most recent year a district can be predicted for (the forecast horizon)."""
     years = list_years_for_district(district)
     if not years:
         raise PredictionError(f"No climate data available for district '{district}'")
@@ -112,6 +122,59 @@ def latest_year(district: str) -> int:
 # ---------------------------------------------------------------------------
 # Sample construction
 # ---------------------------------------------------------------------------
+def _pad_or_truncate(seq: np.ndarray) -> np.ndarray:
+    """Enforce exactly MODEL_SEQUENCE_LENGTH timesteps to match the model shape."""
+    seq = np.asarray(seq, dtype=np.float32)
+    if len(seq) >= MODEL_SEQUENCE_LENGTH:
+        return seq[:MODEL_SEQUENCE_LENGTH]
+    pad_width = MODEL_SEQUENCE_LENGTH - len(seq)
+    padding = np.tile(seq[-1:], (pad_width, 1))
+    return np.vstack([seq, padding]).astype(np.float32)
+
+
+def _projected_climate_sequence(district: str) -> np.ndarray:
+    """
+    Synthesize a 12-month climate sequence for years beyond the historical
+    record (2025-2030) by averaging each calendar month over the most recent
+    `FORECAST_WINDOW_YEARS` years at the district's grid point.
+    """
+    coord_map = _district_to_coord()
+    if district not in coord_map:
+        raise PredictionError(f"Unknown district: '{district}'")
+    c_lat, c_lon = coord_map[district]
+
+    climate_df = _load_climate_df()
+    coords_sel = climate_df[
+        np.isclose(climate_df["LAT"], c_lat) & np.isclose(climate_df["LON"], c_lon)
+    ]
+
+    last_hist = _last_historical_year()
+    window_years = list(
+        range(last_hist - config.FORECAST_WINDOW_YEARS + 1, last_hist + 1)
+    )
+    ref = coords_sel[coords_sel["Year"].isin(window_years)]
+
+    if len(ref) == 0:
+        raise PredictionError(
+            f"No reference climate data to project district '{district}'"
+        )
+
+    months = (ref["DATE"].dt.month - 1).to_numpy(dtype=int)
+    feats = ref[config.CLIMATE_FEATURES].values
+
+    n_months = 12
+    seq = np.zeros((n_months, feats.shape[1]), dtype=np.float32)
+    for m in range(n_months):
+        mask = months == m
+        if mask.sum() == 0:
+            raise PredictionError(
+                f"Missing month {m + 1} in reference data for district '{district}'"
+            )
+        seq[m] = feats[mask].mean(axis=0)
+
+    return _pad_or_truncate(seq)
+
+
 def _build_climate_sequence(district: str, year: int) -> np.ndarray:
     coord_map = _district_to_coord()
     if district not in coord_map:
@@ -126,19 +189,13 @@ def _build_climate_sequence(district: str, year: int) -> np.ndarray:
     ].sort_values("DATE")
 
     if len(sub_climate) == 0:
+        if year > _last_historical_year():
+            # No observed data for this future year — use the projection.
+            return _projected_climate_sequence(district)
         raise PredictionError(f"No climate data for district '{district}' in year {year}")
 
     seq = sub_climate[config.CLIMATE_FEATURES].values
-
-    # Enforce exactly 12 timesteps to match the Keras model shape (12, 6)
-    if len(seq) >= MODEL_SEQUENCE_LENGTH:
-        seq = seq[:MODEL_SEQUENCE_LENGTH]
-    else:
-        pad_width = MODEL_SEQUENCE_LENGTH - len(seq)
-        padding = np.tile(seq[-1:], (pad_width, 1))
-        seq = np.vstack([seq, padding])
-
-    return seq.astype(np.float32)
+    return _pad_or_truncate(seq)
 
 
 def _build_soil_vector(district: str) -> np.ndarray:
@@ -236,12 +293,47 @@ def predict_with_confidence(crop: str, district: str, year: int) -> dict:
         "yield_mt_per_ha": yield_mt_ha,
         "confidence_pct": confidence_pct,
         "error_margin_mt_per_ha": round(mae, 4),
+        "is_projection": year > _last_historical_year(),
     }
 
 
 # ---------------------------------------------------------------------------
 # Model statistics (computed once per crop on the held-out validation split)
 # ---------------------------------------------------------------------------
+def _save_actual_vs_predicted_plot(crop: str, y_actual, y_pred, r2: float) -> str:
+    """
+    Render an actual-vs-predicted scatter plot for a crop and persist it to
+    saved_models so the frontend can display it (served via /static/models).
+    Returns the file name.
+    """
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    filename = f"{crop}_actual_vs_predicted.png"
+    path = os.path.join(config.SAVE_DIR, filename)
+
+    y_actual = np.asarray(y_actual, dtype=float)
+    y_pred = np.asarray(y_pred, dtype=float)
+
+    plt.figure(figsize=(7, 6))
+    plt.scatter(y_actual, y_pred, alpha=0.6, edgecolors="k", s=30)
+    lo = min(y_actual.min(), y_pred.min())
+    hi = max(y_actual.max(), y_pred.max())
+    plt.plot([lo, hi], [lo, hi], "r--", lw=2, label="Ideal line (y = x)")
+    plt.xlabel("Actual Yield (mt/ha)")
+    plt.ylabel("Predicted Yield (mt/ha)")
+    plt.title(f"{config.CROPS[crop]} Actual vs Predicted (R2={r2:.3f})")
+    plt.legend()
+    plt.grid(True, linestyle="--", alpha=0.4)
+    plt.tight_layout()
+    plt.savefig(path, dpi=150)
+    plt.close()
+
+    return filename
+
+
 def compute_crop_stats(crop: str) -> dict:
     """
     Evaluate a crop's model on the same 20% validation split that evaluate.py
@@ -298,6 +390,8 @@ def compute_crop_stats(crop: str) -> dict:
     buf = io.StringIO()
     model.summary(print_fn=lambda line: buf.write(line + "\n"))
 
+    plot_filename = _save_actual_vs_predicted_plot(crop, y_val, y_pred, r2)
+
     stats = {
         "crop": crop,
         "crop_name": config.CROPS[crop],
@@ -309,6 +403,7 @@ def compute_crop_stats(crop: str) -> dict:
         "n_validation": int(len(y_val)),
         "model_parameters": int(model.count_params()),
         "architecture": buf.getvalue(),
+        "plot_url": f"/static/models/{plot_filename}",
     }
 
     with _lock:

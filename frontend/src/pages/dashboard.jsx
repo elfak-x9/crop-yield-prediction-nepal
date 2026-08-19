@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getStats, PLOT_URLS } from "../lib/api";
+import { getStats, PLOT_URLS, plotUrl } from "../lib/api";
 
 const metricBar = (value, max, color) => {
   const widthPct = Math.max(Math.min((value / max) * 100, 100), 4);
@@ -98,6 +98,16 @@ function StatsPage() {
                     <span>Model parameters: <b>{s.model_parameters.toLocaleString()}</b></span>
                   </div>
 
+                  <div className="px-6 pb-6">
+                    <p className="font-semibold text-center mb-3">Actual vs Predicted</p>
+                    <img
+                      src={plotUrl(s.plot_url)}
+                      alt={`${s.crop_name} actual vs predicted`}
+                      className="w-full max-w-md mx-auto rounded-lg border"
+                      loading="lazy"
+                    />
+                  </div>
+
                   {expanded === s.crop && (
                     <div className="px-6 pb-6">
                       <pre className="bg-gray-900 text-green-300 rounded-lg p-4 text-xs overflow-x-auto">
@@ -110,27 +120,16 @@ function StatsPage() {
             </div>
 
             <h2 className="text-2xl font-bold text-green-700 mt-12 mb-4">
-              Training Curves
+              Training Curve
             </h2>
-            <div className="grid md:grid-cols-2 gap-6">
-              <div className="bg-white rounded-xl shadow-lg p-4">
-                <p className="font-semibold text-center mb-2">Loss Curves</p>
-                <img
-                  src={PLOT_URLS.trainingHistory}
-                  alt="Training history"
-                  className="w-full rounded-lg"
-                  loading="lazy"
-                />
-              </div>
-              <div className="bg-white rounded-xl shadow-lg p-4">
-                <p className="font-semibold text-center mb-2">Actual vs Predicted</p>
-                <img
-                  src={PLOT_URLS.actualVsPredicted}
-                  alt="Actual vs predicted"
-                  className="w-full rounded-lg"
-                  loading="lazy"
-                />
-              </div>
+            <div className="bg-white rounded-xl shadow-lg p-4">
+              <p className="font-semibold text-center mb-2">Loss & MAE history</p>
+              <img
+                src={PLOT_URLS.trainingHistory}
+                alt="Training history"
+                className="w-full max-w-3xl mx-auto rounded-lg"
+                loading="lazy"
+              />
             </div>
           </>
         )}

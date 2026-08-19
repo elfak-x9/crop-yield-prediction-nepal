@@ -27,6 +27,7 @@ class PredictResponse(BaseModel):
     predicted_yield_mt_per_ha: float
     confidence_pct: float
     error_margin_mt_per_ha: float
+    is_projection: bool = False
     land_area_ha: Optional[float] = None
     predicted_total_yield_mt: Optional[float] = None
 
@@ -42,6 +43,7 @@ class CropStats(BaseModel):
     n_validation: int
     model_parameters: int
     architecture: str
+    plot_url: str
 
 
 class ErrorResponse(BaseModel):

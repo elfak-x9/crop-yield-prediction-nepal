@@ -116,9 +116,11 @@ Request body:
   "land_area": 2.5
 }
 ```
-`year` is optional — omit it or send `null` to use the most recent year with
-climate data for that district. `land_area` (hectares) is optional — omit it or
-send `null` if you only want yield per hectare.
+`year` is optional — omit it or send `null` to use the most recent
+predictable year (currently the forecast horizon, 2030). Years up to 2030 are
+supported; years after the historical record (2024) use a projected climate
+sequence. `land_area` (hectares) is optional — omit it or send `null` if you
+only want yield per hectare.
 
 Response:
 ```json
@@ -146,15 +148,17 @@ Errors:
 
 The frontend has two main pages:
 
-- **Prediction** (`/prediction`) — select a crop, a district, and enter a land
-  area in hectares. It POSTs to `/predict` and shows the predicted yield
-  (mt/ha), total production (mt), and the model confidence.
+- **Prediction** (`/prediction`) — select a crop, a district, and a year. It
+  POSTs to `/predict` and shows the predicted yield (mt/ha) for that year along
+  with the model confidence and error margin.
 - **Statistics** (`/statistics`) — fetches `/stats` and renders R², RMSE, MAE,
   sample counts and the architecture of each crop's model, plus the saved
   training plots.
 
+There is also an **About** page (`/about`) describing the model and the data.
+
 `frontend/src/lib/api.js` wraps all backend endpoints (`getCrops`,
-`getDistricts`, `getStats`, `predictYield`) and exposes the plot URLs.
+`getDistricts`, `getYears`, `getStats`, `predictYield`) and exposes the plot URLs.
 
 Copy `frontend/.env.example` to `frontend/.env` and adjust
 `VITE_API_URL` if your backend isn't on `localhost:8000`.
@@ -176,9 +180,12 @@ npm run dev
   for a given crop will be slower (loading the `.keras` file + 3
   scalers); subsequent calls reuse the cached model.
 - **Years available depend on your climate CSV** (`1979_2024` per the
-  filename) — there's no future-year forecasting here, only prediction
-  for years that exist in the historical climate data.
-- If you add a 5th crop later, just add its code + display name to
+  filename). Years up to `FORECAST_HORIZON_YEAR` (default `2030`) are
+  selectable: 1981–2024 use the observed climate record, while 2025–2030 are
+  **projections** built from the monthly average of the last
+  `FORECAST_WINDOW_YEARS` (5) years at that district's grid point. Projected
+  predictions are flagged with `"is_projection": true`.
+- If you add a crop later, just add its code + display name to
   `CROPS` in `backend/app/config.py` — nothing else needs to change, as
   long as `best_{CODE}_model.keras` and `{CODE}_scaler_*.pkl` exist in
   `saved_models/`.

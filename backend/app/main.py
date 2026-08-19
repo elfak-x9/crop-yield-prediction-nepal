@@ -100,7 +100,7 @@ def predict(req: PredictRequest):
 
     # Print calculated results to the terminal
     print(f"Crop Name          : {config.CROPS[req.crop]}")
-    print(f"Year (used)        : {year}")
+    print(f"Year (used)        : {year}{' (projected climate)' if pred_info['is_projection'] else ''}")
     print(f"Yield (MT/ha)      : {round(yield_mt_ha, 4)}")
     print(f"Confidence         : {pred_info['confidence_pct']}% (+/- {pred_info['error_margin_mt_per_ha']})")
     if total is not None:
@@ -115,6 +115,7 @@ def predict(req: PredictRequest):
         predicted_yield_mt_per_ha=round(yield_mt_ha, 4),
         confidence_pct=pred_info["confidence_pct"],
         error_margin_mt_per_ha=pred_info["error_margin_mt_per_ha"],
+        is_projection=pred_info["is_projection"],
         land_area_ha=req.land_area,
         predicted_total_yield_mt=round(total, 4) if total is not None else None,
     )
