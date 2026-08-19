@@ -1,80 +1,203 @@
-import numpy as np
 import tensorflow as tf
 
 from src.data_loader import load_and_preprocess_data
 from src.scaling import scale_with_fitted, inverse_scale_y
 
 
-def predict_samples(target_crop, indices, save_dir="saved_models"):
+def predict_samples(
+    target_crop,
+    selected_districts,
+    selected_years,
+    save_dir="saved_models",
+):
 
     print("\n==============================")
     print(f"Predicting {target_crop}")
     print("==============================")
 
+    # --------------------------------------------------
+    # Check districts and years
+    # --------------------------------------------------
+    if len(selected_districts) != len(selected_years):
+        raise ValueError(
+            "selected_districts and selected_years must have "
+            "the same number of items."
+        )
 
-    # Load correct model automatically
+    # --------------------------------------------------
+    # Load correct model
+    # --------------------------------------------------
     model_path = f"{save_dir}/best_{target_crop}_model.keras"
 
     print(f"Loading model: {model_path}")
 
-    model = tf.keras.models.load_model(
-        model_path
+    model = tf.keras.models.load_model(model_path)
+
+    # --------------------------------------------------
+    # Load crop data + metadata
+    # --------------------------------------------------
+    X_climate, X_soil, y, districts, years = load_and_preprocess_data(
+        target_crop=target_crop,
+        sequence_length=12,
+        return_metadata=True,
     )
 
+    # --------------------------------------------------
+    # Find exact district + year samples
+    # --------------------------------------------------
+    selected_indices = []
 
-    # Load correct crop data (raw)
-    X_climate, X_soil, y = load_and_preprocess_data(
-        target_crop=target_crop
-    )
+    for requested_district, requested_year in zip(
+        selected_districts,
+        selected_years,
+    ):
 
+        requested_district = (
+            requested_district.strip().lower()
+        )
 
-    # Select requested samples (raw)
-    selected_climate = X_climate[indices]
-    selected_soil = X_soil[indices]
-    selected_actual = y[indices]
+        requested_year = int(requested_year)
 
-    # Scale inputs using the SAME scalers fit during training
+        matching_indices = [
+            i
+            for i, (district, year) in enumerate(
+                zip(districts, years)
+            )
+            if district == requested_district
+            and int(year) == requested_year
+        ]
+
+        if len(matching_indices) == 0:
+
+            print(
+                f"WARNING: No valid sample found for "
+                f"{requested_district} in {requested_year}."
+            )
+
+        else:
+
+            selected_indices.append(
+                matching_indices[0]
+            )
+
+    # --------------------------------------------------
+    # Stop if no samples were found
+    # --------------------------------------------------
+    if len(selected_indices) == 0:
+        print("No valid district/year combinations found.")
+        return
+
+    # --------------------------------------------------
+    # Select requested samples
+    # --------------------------------------------------
+    selected_climate = X_climate[selected_indices]
+    selected_soil = X_soil[selected_indices]
+    selected_actual = y[selected_indices]
+
+    selected_district_names = [
+        districts[i]
+        for i in selected_indices
+    ]
+
+    selected_year_values = [
+        years[i]
+        for i in selected_indices
+    ]
+
+    # --------------------------------------------------
+    # Scale using the SAME scalers used during training
+    # --------------------------------------------------
     selected_climate, selected_soil, _ = scale_with_fitted(
-        selected_climate, selected_soil, None,
-        save_dir=save_dir, target_crop=target_crop
+        selected_climate,
+        selected_soil,
+        None,
+        save_dir=save_dir,
+        target_crop=target_crop,
     )
 
-    # Predict all samples together
+    # --------------------------------------------------
+    # Predict
+    # --------------------------------------------------
     predictions = model.predict(
         {
             "Climate_Input": selected_climate,
-            "Soil_Input": selected_soil
+            "Soil_Input": selected_soil,
         },
-        verbose=0
+        verbose=0,
     ).flatten()
 
-    # Bring predictions back into real mt/ha units
-    predictions = inverse_scale_y(predictions, save_dir=save_dir, target_crop=target_crop)
+    # --------------------------------------------------
+    # Convert predictions back to mt/ha
+    # --------------------------------------------------
+    predictions = inverse_scale_y(
+        predictions,
+        save_dir=save_dir,
+        target_crop=target_crop,
+    )
 
+    # --------------------------------------------------
+    # Print results
+    # --------------------------------------------------
+    print(
+        "\n=========================================================================="
+    )
 
-    # Print table
-    print("\n==============================================================")
-    print("Index    | Actual (mt/ha)  | Predicted (mt/ha)  | Diff")
-    print("==============================================================")
+    print(
+        "District       | Year | Actual (mt/ha) | "
+        "Predicted (mt/ha) | Diff"
+    )
 
-    for idx, actual, predicted in zip(indices, selected_actual, predictions):
+    print(
+        "=========================================================================="
+    )
+
+    for (
+        district,
+        year,
+        actual,
+        predicted,
+    ) in zip(
+        selected_district_names,
+        selected_year_values,
+        selected_actual,
+        predictions,
+    ):
 
         diff = abs(actual - predicted)
 
         print(
-            f"{idx:<9}| "
-            f"{actual:<16.3f}| "
-            f"{predicted:<19.3f}| "
+            f"{district:<14} | "
+            f"{year:<4} | "
+            f"{actual:<15.3f} | "
+            f"{predicted:<17.3f} | "
             f"{diff:.3f}"
         )
 
-    print("==============================================================\n")
-
+    print(
+        "=========================================================================="
+    )
 
 
 if __name__ == "__main__":
 
     predict_samples(
         target_crop="WH_Y",
-        indices=[5, 12, 25, 42, 50]
+
+        selected_districts=[
+            "arghakhanchi",
+            "ilam",
+            "morang",
+            "jhapa",
+            "khotang",
+            "sindhuli",
+        ],
+
+        selected_years=[
+            1981,
+            1990,
+            2000,
+            2010,
+            2020,
+            2024,
+        ],
     )
