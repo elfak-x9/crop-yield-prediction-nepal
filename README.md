@@ -71,13 +71,13 @@ From the project root (important — so the relative default paths resolve):
 
 ```bash
 cd crop-yield-prediction-nepal
-python -m venv backend/.venv
+python -m venv .venv
 # Windows:
-backend\.venv\Scripts\activate
+.venv\Scripts\activate
 # macOS/Linux:
-source backend/.venv/bin/activate
+source .venv/bin/activate
 
-pip install -r backend/requirements.txt
+pip install -r requirements.txt
 
 uvicorn backend.app.main:app --reload --port 8000
 ```
@@ -89,10 +89,21 @@ Visit `http://localhost:8000/docs` for interactive Swagger docs.
 | Method | Path                  | Purpose                                              |
 |--------|-----------------------|-------------------------------------------------------|
 | GET    | `/health`              | Liveness check                                       |
-| GET    | `/crops`                | List supported crop codes + display names            |
-| GET    | `/districts`            | List all 75 districts (lowercased, as used internally)|
+| GET    | `/crops`                | List supported crops (PD_Y, MZ_Y, WH_Y) + display names |
+| GET    | `/districts`            | List all districts with soil data (lowercased)        |
 | GET    | `/years/{district}`     | Years with climate data available for that district   |
+| GET    | `/stats`                | Per-crop model statistics (R², RMSE, MAE, architecture) |
 | POST   | `/predict`               | Run a prediction                                     |
+
+Saved model plots are also served at `/static/models/training_history.png`
+and `/static/models/actual_vs_predicted.png`.
+
+### `GET /stats`
+
+Computes R², RMSE, MAE and the model architecture summary for each crop on
+the same 20% validation split used by `evaluate.py`. Results are cached after
+the first call (the first call can take a few seconds while the validation
+predictions run).
 
 ### `POST /predict`
 
@@ -105,8 +116,11 @@ Request body:
   "land_area": 2.5
 }
 ```
-`land_area` (hectares) is optional — omit it or send `null` if you only
-want yield per hectare.
+`year` is optional — omit it or send `null` to use the most recent
+predictable year (currently the forecast horizon, 2030). Years up to 2030 are
+supported; years after the historical record (2024) use a projected climate
+sequence. `land_area` (hectares) is optional — omit it or send `null` if you
+only want yield per hectare.
 
 Response:
 ```json
@@ -114,12 +128,16 @@ Response:
   "crop": "PD_Y",
   "crop_name": "Paddy (Rice)",
   "district": "kathmandu",
-  "year": 2020,
+  "year": 2024,
   "predicted_yield_mt_per_ha": 3.42,
+  "confidence_pct": 85.4,
+  "error_margin_mt_per_ha": 0.37,
   "land_area_ha": 2.5,
   "predicted_total_yield_mt": 8.55
 }
 ```
+`confidence_pct` is derived from the crop's validation error relative to its
+mean yield, and `error_margin_mt_per_ha` is the validation MAE.
 
 Errors:
 - `400` — unsupported crop code
@@ -128,12 +146,19 @@ Errors:
 
 ## 4. Frontend wiring
 
-`frontend/src/lib/api.js` was added, and
-`frontend/src/components/prediction/predictionform.jsx` was updated to:
-- load the crop list and district list from the backend on mount,
-- load the available years once a district is picked,
-- POST to `/predict` and show the real result instead of the old
-  hardcoded "5.8 Tons (Demo)" value.
+The frontend has two main pages:
+
+- **Prediction** (`/prediction`) — select a crop, a district, and a year. It
+  POSTs to `/predict` and shows the predicted yield (mt/ha) for that year along
+  with the model confidence and error margin.
+- **Statistics** (`/statistics`) — fetches `/stats` and renders R², RMSE, MAE,
+  sample counts and the architecture of each crop's model, plus the saved
+  training plots.
+
+There is also an **About** page (`/about`) describing the model and the data.
+
+`frontend/src/lib/api.js` wraps all backend endpoints (`getCrops`,
+`getDistricts`, `getYears`, `getStats`, `predictYield`) and exposes the plot URLs.
 
 Copy `frontend/.env.example` to `frontend/.env` and adjust
 `VITE_API_URL` if your backend isn't on `localhost:8000`.
@@ -155,9 +180,12 @@ npm run dev
   for a given crop will be slower (loading the `.keras` file + 3
   scalers); subsequent calls reuse the cached model.
 - **Years available depend on your climate CSV** (`1979_2024` per the
-  filename) — there's no future-year forecasting here, only prediction
-  for years that exist in the historical climate data.
-- If you add a 5th crop later, just add its code + display name to
+  filename). Years up to `FORECAST_HORIZON_YEAR` (default `2030`) are
+  selectable: 1981–2024 use the observed climate record, while 2025–2030 are
+  **projections** built from the monthly average of the last
+  `FORECAST_WINDOW_YEARS` (5) years at that district's grid point. Projected
+  predictions are flagged with `"is_projection": true`.
+- If you add a crop later, just add its code + display name to
   `CROPS` in `backend/app/config.py` — nothing else needs to change, as
   long as `best_{CODE}_model.keras` and `{CODE}_scaler_*.pkl` exist in
   `saved_models/`.

@@ -32,14 +32,27 @@ export function getYears(district) {
   return request(`/years/${encodeURIComponent(district)}`);
 }
 
+export function getStats() {
+  return request("/stats");
+}
+
 export function predictYield({ crop, district, year, landArea }) {
   return request("/predict", {
     method: "POST",
     body: JSON.stringify({
       crop,
       district,
-      year: Number(year),
+      year: year ? Number(year) : null,
       land_area: landArea ? Number(landArea) : null,
     }),
   });
+}
+
+export const PLOT_URLS = {
+  trainingHistory: `${API_BASE_URL}/static/models/training_history.png`,
+  actualVsPredicted: `${API_BASE_URL}/static/models/actual_vs_predicted.png`,
+};
+
+export function plotUrl(path) {
+  return `${API_BASE_URL}${path}`;
 }

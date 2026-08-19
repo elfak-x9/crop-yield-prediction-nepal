@@ -2,7 +2,7 @@ import { Routes, Route } from "react-router-dom";
 import Navbar from "./components/layout/navbar";
 import Home from "./pages/home";
 import Prediction from "./pages/prediction";
-import Dashboard from "./pages/dashboard";
+import StatsPage from "./pages/dashboard";
 import About from "./pages/about";
 import NotFound from "./pages/notfound";
 
@@ -14,7 +14,8 @@ function App() {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/prediction" element={<Prediction />} />
-        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/statistics" element={<StatsPage />} />
+        <Route path="/dashboard" element={<StatsPage />} />
         <Route path="/about" element={<About />} />
         <Route path="*" element={<NotFound />} />
       </Routes>

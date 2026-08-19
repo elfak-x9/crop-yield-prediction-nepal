@@ -34,9 +34,22 @@ CLIMATE_CSV = os.environ.get(
     "CLIMATE_CSV",
     os.path.join(PROJECT_ROOT, "data", "processed", "nepal_district_climate_1979_2024.csv"),
 )
+YIELD_CSV = os.environ.get(
+    "YIELD_CSV",
+    os.path.join(PROJECT_ROOT, "data", "processed", "crops-yield-1979-2024.csv"),
+)
 
 # --- Model / sequence config (must match main.py / preprocessing.py) -----
-SEQUENCE_LENGTH = 150
+# 12 monthly timesteps per year — matches the trained model input shape (12, 6)
+SEQUENCE_LENGTH = 12
+
+# --- Forecasting horizon ---------------------------------------------------
+# Years beyond the last year in the climate CSV have no observed weather data;
+# for those years the backend builds a climate sequence from the monthly
+# average of the most recent `FORECAST_WINDOW_YEARS` years at the district's
+# grid point.
+FORECAST_HORIZON_YEAR = 2030
+FORECAST_WINDOW_YEARS = 5
 
 # Exact column order used when building X_soil in src/preprocessing.py
 SOIL_COLS = [
@@ -62,11 +75,12 @@ CROPS = {
     "PD_Y": "Paddy (Rice)",
     "MZ_Y": "Maize",
     "WH_Y": "Wheat",
-    "BW_Y": "Buckwheat",
 }
 
 # --- CORS ------------------------------------------------------------------
 FRONTEND_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
 ]
