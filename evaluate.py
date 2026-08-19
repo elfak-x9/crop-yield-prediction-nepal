@@ -124,4 +124,4 @@ def evaluate(target_crop):
 if __name__ == "__main__":
 
     # Change only this crop name
-    evaluate("WH_Y")
+    evaluate("BW_Y")

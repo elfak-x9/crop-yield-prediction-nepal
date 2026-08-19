@@ -14,7 +14,7 @@ from src.scaling import fit_and_scale_train, scale_with_fitted
 # Configuration
 # ==================================================
 SEED = 42
-TARGET_CROP = "WH_Y"       # Change to PD_Y, MZ_Y, etc.
+TARGET_CROP = "BW_Y"       # Change to PD_Y, MZ_Y, etc.
 SEQUENCE_LENGTH = 150
 EPOCHS = 100
 BATCH_SIZE = 16
