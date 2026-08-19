@@ -1,0 +1,233 @@
+import { useEffect, useState } from "react";
+import { getCrops, getDistricts, getYears, predictYield } from "../../lib/api";
+
+function PredictionForm() {
+  const [crops, setCrops] = useState([]);
+  const [districts, setDistricts] = useState([]);
+  const [years, setYears] = useState([]);
+
+  const [formData, setFormData] = useState({
+    crop: "",
+    district: "",
+    year: "",
+    landArea: "",
+  });
+
+  const [prediction, setPrediction] = useState(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [initError, setInitError] = useState("");
+  const [initLoading, setInitLoading] = useState(true);
+
+  // Load crop + district options once on mount
+  useEffect(() => {
+    Promise.all([getCrops(), getDistricts()])
+      .then(([cropsData, districtsData]) => {
+        setCrops(cropsData);
+        setDistricts(districtsData);
+      })
+      .catch(() =>
+        setInitError(
+          "Can't reach the backend. Make sure it's running (uvicorn backend.app.main:app --reload --port 8000) and refresh this page."
+        )
+      )
+      .finally(() => setInitLoading(false));
+  }, []);
+
+  // Load available years whenever the district changes
+  useEffect(() => {
+    if (!formData.district) {
+      setYears([]);
+      return;
+    }
+    getYears(formData.district)
+      .then(setYears)
+      .catch((e) => setError(e.message));
+  }, [formData.district]);
+
+  const handleChange = (e) => {
+    setFormData({
+      ...formData,
+      [e.target.name]: e.target.value,
+    });
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
+    setPrediction(null);
+    setLoading(true);
+
+    try {
+      const result = await predictYield({
+        crop: formData.crop,
+        district: formData.district,
+        year: formData.year,
+        landArea: formData.landArea,
+      });
+      setPrediction(result);
+    } catch (err) {
+      const msg =
+        err.message === "Failed to fetch"
+          ? "Can't reach the backend. Make sure it's running on http://localhost:8000."
+          : err.message || "Prediction failed.";
+      setError(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <section className="min-h-screen bg-green-50 py-20">
+      <div className="max-w-2xl mx-auto bg-white rounded-xl shadow-lg p-8">
+
+        <h1 className="text-3xl font-bold text-center text-green-700 mb-8">
+          Crop Yield Prediction
+        </h1>
+
+        {initLoading && (
+          <p className="text-center text-gray-500 mb-6">Loading form options...</p>
+        )}
+
+        {initError && (
+          <div className="mb-6 bg-red-100 text-red-700 rounded-lg p-4 text-sm">
+            {initError}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-6">
+
+          {/* Crop */}
+          <div>
+            <label className="block mb-2 font-semibold">Crop</label>
+            <select
+              name="crop"
+              value={formData.crop}
+              onChange={handleChange}
+              className="w-full border rounded-lg p-3"
+              required
+            >
+              <option value="">Select Crop</option>
+              {crops.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* District */}
+          <div>
+            <label className="block mb-2 font-semibold">District</label>
+            <select
+              name="district"
+              value={formData.district}
+              onChange={handleChange}
+              className="w-full border rounded-lg p-3"
+              required
+            >
+              <option value="">Select District</option>
+              {districts.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Year */}
+          <div>
+            <label className="block mb-2 font-semibold">Year</label>
+            <select
+              name="year"
+              value={formData.year}
+              onChange={handleChange}
+              className="w-full border rounded-lg p-3"
+              required
+              disabled={!formData.district}
+            >
+              <option value="">
+                {formData.district ? "Select Year" : "Select a district first"}
+              </option>
+              {years.map((y) => (
+                <option key={y} value={y}>
+                  {y}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Land Area */}
+          <div>
+            <label className="block mb-2 font-semibold">
+              Land Area (Hectares) — optional
+            </label>
+            <input
+              type="number"
+              name="landArea"
+              value={formData.landArea}
+              onChange={handleChange}
+              placeholder="Example: 2"
+              className="w-full border rounded-lg p-3"
+              min="0"
+              step="any"
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading || initLoading || !!initError}
+            className="w-full bg-green-600 text-white py-3 rounded-lg hover:bg-green-700 transition disabled:opacity-60"
+          >
+            {loading ? "Predicting..." : "Predict Yield"}
+          </button>
+
+        </form>
+
+        {error && (
+          <div className="mt-6 bg-red-100 text-red-700 rounded-lg p-4">
+            {error}
+          </div>
+        )}
+
+        {prediction && (
+          <div className="mt-8 border-t pt-6">
+            <h2 className="text-2xl font-bold text-green-700 mb-4">
+              Prediction Result
+            </h2>
+
+            <p>
+              <strong>Crop:</strong> {prediction.crop_name}
+            </p>
+            <p>
+              <strong>District:</strong> {prediction.district}
+            </p>
+            <p>
+              <strong>Year:</strong> {prediction.year}
+            </p>
+            {prediction.land_area_ha && (
+              <p>
+                <strong>Land Area:</strong> {prediction.land_area_ha} Hectares
+              </p>
+            )}
+
+            <div className="mt-6 bg-green-100 rounded-lg p-6 text-center">
+              <h3 className="text-lg font-semibold">Estimated Yield</h3>
+              <p className="text-3xl font-bold text-green-700 mt-2">
+                {prediction.predicted_yield_mt_per_ha} mt/ha
+              </p>
+              {prediction.predicted_total_yield_mt != null && (
+                <p className="text-lg text-green-800 mt-1">
+                  Total: {prediction.predicted_total_yield_mt} mt
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
+      </div>
+    </section>
+  );
+}
+
+export default PredictionForm;
