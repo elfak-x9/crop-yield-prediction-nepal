@@ -3,7 +3,7 @@ import pandas as pd
 
 
 def process_features_and_build_sequences(
-    soil_df, climate_df, yield_df, target_crop, sequence_length=150
+    soil_df, climate_df, yield_df, target_crop, sequence_length=12
 ):
     # 1. Parse Dates and Standardize District Names
     climate_df["DATE"] = pd.to_datetime(climate_df["DATE"])

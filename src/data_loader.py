@@ -3,11 +3,12 @@ from src.preprocessing import process_features_and_build_sequences
 
 
 def load_and_preprocess_data(
+    target_crop,
+        
     soil_path="data/processed/nepal_75_districts_soil_dataset.csv",
     climate_path="data/processed/nepal_district_climate_1979_2024.csv",
     yield_path="data/processed/crops-yield-1979-2024.csv",
-    target_crop="PD_Y",
-    sequence_length=150,
+    sequence_length=12,
 ):
     # 1. Load Datasets
     soil_df = pd.read_csv(soil_path)

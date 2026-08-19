@@ -22,14 +22,16 @@ _lock = threading.Lock()
 _model_cache = {}
 _scaler_cache = {}
 
+# Target sequence length expected by the CNN-LSTM model (12 months per year)
+MODEL_SEQUENCE_LENGTH = 12
+
 
 class PredictionError(Exception):
     """Raised for any user-facing prediction failure (bad district, no data, etc.)."""
 
 
 # ---------------------------------------------------------------------------
-# Cached raw data loading (soil.csv + climate.csv only — no yield.csv needed
-# for inference)
+# Cached raw data loading (soil.csv + climate.csv only)
 # ---------------------------------------------------------------------------
 @lru_cache(maxsize=1)
 def _load_soil_df():
@@ -69,11 +71,6 @@ def _district_to_coord():
 
 @lru_cache(maxsize=1)
 def _soil_vectors():
-    """
-    Same as preprocessing.py: numeric soil_cols + one-hot parent_soil,
-    computed across the FULL soil dataframe so the one-hot column order
-    matches what the scalers were fit on during training.
-    """
     soil_df = _load_soil_df()
     soil_raw = soil_df[config.SOIL_COLS].values
     soil_dummies = pd.get_dummies(soil_df["parent_soil"], prefix="soil_type", dtype=float).values
@@ -101,7 +98,7 @@ def list_years_for_district(district: str):
 
 
 # ---------------------------------------------------------------------------
-# Sample construction (raw, unscaled — matches preprocessing.py exactly)
+# Sample construction
 # ---------------------------------------------------------------------------
 def _build_climate_sequence(district: str, year: int) -> np.ndarray:
     coord_map = _district_to_coord()
@@ -121,10 +118,11 @@ def _build_climate_sequence(district: str, year: int) -> np.ndarray:
 
     seq = sub_climate[config.CLIMATE_FEATURES].values
 
-    if len(seq) >= config.SEQUENCE_LENGTH:
-        seq = seq[: config.SEQUENCE_LENGTH]
+    # Enforce exactly 12 timesteps to match the Keras model shape (12, 6)
+    if len(seq) >= MODEL_SEQUENCE_LENGTH:
+        seq = seq[:MODEL_SEQUENCE_LENGTH]
     else:
-        pad_width = config.SEQUENCE_LENGTH - len(seq)
+        pad_width = MODEL_SEQUENCE_LENGTH - len(seq)
         padding = np.tile(seq[-1:], (pad_width, 1))
         seq = np.vstack([seq, padding])
 
@@ -139,7 +137,7 @@ def _build_soil_vector(district: str) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
-# Model + scaler loading (lazy, cached, thread-safe)
+# Model + scaler loading
 # ---------------------------------------------------------------------------
 def _get_model(crop: str):
     if crop not in _model_cache:
@@ -176,21 +174,19 @@ def _get_scalers(crop: str):
 # ---------------------------------------------------------------------------
 def predict_yield(crop: str, district: str, year: int) -> float:
     """
-    Returns the predicted yield in mt/ha for one crop/district/year,
-    running the exact same preprocess -> scale -> model -> inverse-scale
-    pipeline used at training/eval time.
+    Returns the predicted yield in mt/ha for one crop/district/year.
     """
     if crop not in config.CROPS:
         raise PredictionError(f"Unsupported crop code: '{crop}'")
 
     district = district.strip().lower()
 
-    climate_seq = _build_climate_sequence(district, year)  # (150, 6)
-    soil_vec = _build_soil_vector(district)  # (n_soil_features,)
+    climate_seq = _build_climate_sequence(district, year)  # Shape: (12, 6)
+    soil_vec = _build_soil_vector(district)
 
     scaler_climate, scaler_soil, scaler_y = _get_scalers(crop)
 
-    # Climate: flatten to 2D to scale, then reshape back (matches scaling.py)
+    # Climate: flatten to 2D to scale, then reshape to (1, 12, 6)
     seq_len, n_climate_feats = climate_seq.shape
     clim_flat = climate_seq.reshape(-1, n_climate_feats)
     clim_scaled = scaler_climate.transform(clim_flat).reshape(1, seq_len, n_climate_feats)

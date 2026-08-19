@@ -47,7 +47,19 @@ def get_years(district: str):
 
 @app.post("/predict", response_model=PredictResponse)
 def predict(req: PredictRequest):
+    # Print formatted request data to the terminal
+    print("\n==========================================")
+    print("      NEW PREDICTION REQUEST RECEIVED     ")
+    print("==========================================")
+    print(f"Crop Code : {req.crop}")
+    print(f"District  : {req.district}")
+    print(f"Year      : {req.year}")
+    print(f"Land Area : {req.land_area} ha" if req.land_area else "Land Area : Not specified")
+    print("------------------------------------------")
+
     if req.crop not in config.CROPS:
+        print(f"[ERROR] Unsupported crop '{req.crop}'")
+        print("==========================================\n")
         raise HTTPException(
             status_code=400,
             detail=f"Unsupported crop '{req.crop}'. Supported: {list(config.CROPS.keys())}",
@@ -56,11 +68,22 @@ def predict(req: PredictRequest):
     try:
         yield_mt_ha = inference.predict_yield(req.crop, req.district, req.year)
     except inference.PredictionError as exc:
+        print(f"[ERROR] Prediction error: {exc}")
+        print("==========================================\n")
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:  # model/scaler load failures, unexpected shape issues, etc.
+        print(f"[ERROR] Internal prediction failure: {exc}")
+        print("==========================================\n")
         raise HTTPException(status_code=500, detail=f"Prediction failed: {exc}") from exc
 
     total = yield_mt_ha * req.land_area if req.land_area else None
+
+    # Print calculated results to the terminal
+    print(f"Crop Name          : {config.CROPS[req.crop]}")
+    print(f"Yield (MT/ha)      : {round(yield_mt_ha, 4)}")
+    if total is not None:
+        print(f"Total Yield (MT)   : {round(total, 4)}")
+    print("==========================================\n")
 
     return PredictResponse(
         crop=req.crop,
